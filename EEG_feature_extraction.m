@@ -103,7 +103,7 @@ for icl = 1:num_cls
                 band = selected_bands(b);
                 x = squeeze(signal(:, band));
                 [HD(ww,b), HA(ww,b), HDA(ww,b), M(ww,b), ...
-                    ~, ~, ~, ~, ~] = compute_Sampentropies(x, lambda, m, alpha);
+                    ~, ~, ~, ~, ~] = ExSEnt(x, lambda, m, alpha);
                 r = alpha * std(x);
                 sampen(ww,b) = sample_entropy(x, m, r);
                 KFD(ww,b)       = KatzFD(x);
@@ -165,3 +165,4 @@ save('dementia_features_5bands.mat', ...
     'phase_bands_idx', 'amp_bands_idx', 'nbins_pac', '-v7.3');
 
 fprintf('Saved: dementia_features.mat\n');
+
