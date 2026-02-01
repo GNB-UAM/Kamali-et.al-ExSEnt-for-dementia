@@ -71,9 +71,7 @@ Python:
 
 ## 5. Citation
 
-If you use this code, cite:
-1. The dataset paper: doi:10.3390/data8060095.
-2. The manuscript listed in Section 1 (when publicly available).
+If you use this code, cite the manuscript listed in Section 1 (when publicly available).
 
 ## 6. Contact
 
