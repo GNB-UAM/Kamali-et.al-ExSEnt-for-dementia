@@ -6,20 +6,16 @@
 import os, warnings, math, glob, re
 from collections import defaultdict, Counter
 from copy import deepcopy
-
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-
 from itertools import product
 from joblib import Memory
-
 try:
     from IPython.display import display, HTML
     _CAN_DISPLAY = True
 except Exception:
     _CAN_DISPLAY = False
-    
 # Scikit-learn core
 from sklearn.feature_selection import VarianceThreshold
 from sklearn.metrics import (accuracy_score, balanced_accuracy_score, f1_score, roc_auc_score,classification_report, 
@@ -31,57 +27,31 @@ from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler, RobustScaler
 from sklearn.linear_model import LogisticRegression, SGDClassifier
 from sklearn.base import clone
-
-from sklearn.pipeline import Pipeline
-from sklearn.impute import SimpleImputer
-from sklearn.linear_model import LogisticRegression
-
 from matplotlib import cm, colors
 from matplotlib.patches import Patch
-
-from sklearn.pipeline import Pipeline
-from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
-
-
-from sklearn.pipeline import Pipeline
-from sklearn.impute import SimpleImputer
-from sklearn.linear_model import LogisticRegression
-
-
 from scipy.stats import mannwhitneyu
 from statsmodels.stats.multitest import multipletests
 from joblib import Parallel, delayed
-
 import json, hashlib
 import warnings
 warnings.filterwarnings("ignore")
-
-import matplotlib.pyplot as plt
 from scipy.io import loadmat
-
 # ---- Threads cap to avoid hidden oversubscription  ----
 os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "6")
 os.environ.setdefault("OMP_NUM_THREADS", "6")
-
 warnings.filterwarnings("ignore")
-
 # Reproducibility
 SEED = 42
 rng = check_random_state(SEED)
-
 print("Imports OK! Ready for LR Stability Selection within LOSO! :)")
-
 
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 # Cell 2a: Load LPFC XX (N × n_trl × n_feat) + labels from MATLAB export 
-
 mat_root = "features file path"
 out_dir  = "path to save results"
 os.makedirs(out_dir, exist_ok=True)
-
 CLUSTER = "LPFC" # Adjust to the current data file name; we select from  {LPFC, RPFC, LVA, RVA}
-
 mf = os.path.join(mat_root, f"tensor_pure_feats_{CLUSTER}.mat")
 if not os.path.isfile(mf):
     hits = sorted(glob.glob(os.path.join(mat_root, f"tensor_pure_feats_*{CLUSTER}*.mat")))
@@ -99,14 +69,12 @@ y_mmse = np.asarray(dd["ymmse"]).reshape(-1)
 F = X_all.shape[2]
 feat_arr = dd["feature_names"]
 feature_names = [str(x).strip() for x in np.asarray(feat_arr).ravel().tolist()]
-
 N = X_all.shape[0]
 assert len(subject_ids) == N and len(y_CD) == N and len(feature_names) == F
 
 print(f"[{CLUSTER}] file: {mf}")
 print(f"[{CLUSTER}] X_all: {X_all.shape}")
 print(f"[{CLUSTER}] y_CD counts: {pd.Series(y_CD).value_counts().to_dict()}")
-
 
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 # Cell 2b: Cohort summary (group/age/gender) 
@@ -117,8 +85,7 @@ group  = np.asarray(dd["group_str"]).reshape(-1)
 age    = np.asarray(dd["age"], dtype=float).reshape(-1)
 gender = np.asarray(dd["gender_raw"]).reshape(-1)
 
-meta = pd.DataFrame({"subject_id": np.asarray(subject_ids).reshape(-1),
-                     "group": group, "age": age, "gender": gender})
+meta = pd.DataFrame({"subject_id": np.asarray(subject_ids).reshape(-1), "group": group, "age": age, "gender": gender})
 
 grp_counts = meta["group"].value_counts()
 grp_pct = 100.0 * grp_counts / grp_counts.sum()
@@ -141,7 +108,6 @@ print(f"[{CLUSTER}] counts:\n{grp_counts.to_string()}")
 print(f"\n[{CLUSTER}] %:\n{grp_pct.round(2).to_string()}")
 print(f"\n[{CLUSTER}] age:\n{age_summary.to_string()}")
 print(f"\n[{CLUSTER}] gender:\n{gender_ct.to_string()}")
-
 group_order = grp_counts.index.tolist()
 
 fig, ax = plt.subplots(figsize=(5, 4), dpi=130)
@@ -174,21 +140,16 @@ fig.tight_layout()
 fig.savefig(os.path.join(out_dir, f"{CLUSTER}_gender_stacked_bar.png"), bbox_inches="tight")
 plt.close(fig)
 
-
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 #  Cell 2c: Append features: Here we add TAR 
 
 A_name, B_name = "powermean_Theta", "powermean_Alpha"
-
 name2idx = {n.lower(): i for i, n in enumerate(feature_names)}
 iA, iB = name2idx[A_name.lower()], name2idx[B_name.lower()]
-
 A = X_all[:, :, iA]
 B = X_all[:, :, iB]
-
 ratio = A / B
 X_all = np.concatenate([X_all, ratio[:, :, None]], axis=2)
-
 feature_names.append(f"{A_name}/{B_name}")
 
 print("Added:", feature_names[-1])
@@ -197,51 +158,42 @@ print("X_all:", X_all.shape, "| n_feat:", len(feature_names))
 
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 #  Cell 2d: Drop features by name 
-
 DROP_FEATURES = [
+    # 'M_Theta','M_Alpha','M_Beta','M_Low Gamma','M_High Gamma',     # Uncomment these lines to run the code only for classic metrics
+    # 'HDA_Theta','HDA_Alpha','HDA_Beta','HDA_Low Gamma','HDA_High Gamma',
+    # 'HA_Theta','HA_Alpha','HA_Beta','HA_Low Gamma','HA_High Gamma',
+    # 'HD_Theta','HD_Alpha','HD_Beta','HD_Low Gamma','HD_High Gamma',
     'powermean_Theta','powermean_Alpha',
-    'signalmean_Delta','signalmean_Theta','signalmean_Alpha','signalmean_Beta','signalmean_Low Gamma','signalmean_High Gamma',
-]
+    'signalmean_Delta','signalmean_Theta','signalmean_Alpha','signalmean_Beta','signalmean_Low Gamma','signalmean_High Gamma',]
 
 drop = set(n.lower() for n in DROP_FEATURES)
 keep_idx = [i for i, n in enumerate(feature_names) if n.lower() not in drop]
-
 X_all = X_all[:, :, keep_idx]
 feature_names = [feature_names[i] for i in keep_idx]
-
 print("X_all:", X_all.shape, "| n_feat:", len(feature_names))
-
 
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 # Cell 3: Aggregation; up to here we have the features over consecutive windows, here we aggregate them by computing their statistics
-
 y_labels = y_CD.astype(int)
 subject_id = subject_ids.astype(int)
-
 AGGS = ("median", "iqr", "cv") # Informatic and outlier-resistant stats
-
 X_med = np.median(X_all, axis=1)
 X_iqr = np.percentile(X_all, 75, axis=1) - np.percentile(X_all, 25, axis=1)
 X_cv  = np.std(X_all, axis=1) / (np.abs(np.mean(X_all, axis=1)) + 1e-8)
-
 X_subj = np.concatenate([X_med, X_iqr, X_cv], axis=1)
 
 F = X_all.shape[2]
 agg_names = (
     [f"{n}|med" for n in feature_names] +
     [f"{n}|iqr" for n in feature_names] +
-    [f"{n}|cv"  for n in feature_names]
-)
+    [f"{n}|cv"  for n in feature_names])
 
 print("X_subj:", X_subj.shape, "| classes:", pd.Series(y_labels).value_counts().to_dict(),
       "| unique subjects:", len(np.unique(subject_id)))
 print("Example agg names:", agg_names[:8])
 
-
-
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 # Cell 4: Helper function: The main Stability Selection helper (Elastic-Net with LR: from saga) 
-
 def _stratified_subsample_indices(y, frac, rng):
     idx = np.arange(len(y))
     take = []
@@ -252,27 +204,21 @@ def _stratified_subsample_indices(y, frac, rng):
         take.append(sel)
     return np.sort(np.concatenate(take))
 
-
 def _sweep_C_path_right_edge(Xs, y, C_grid, q, l1_ratio=None, class_weight='balanced', max_iter=5000, tol=1e-4, seed=0):
     penalty = 'l1' if l1_ratio is None else 'elasticnet'
-
     clf = LogisticRegression(  penalty=penalty, solver='saga', C=float(C_grid[0]),
         l1_ratio=(None if l1_ratio is None else float(l1_ratio)), class_weight=class_weight, max_iter=max_iter, tol=tol,
         n_jobs=1, random_state=seed, warm_start=True)
-
     nz = np.empty(len(C_grid), dtype=int)
     models = []
-
     clf.fit(Xs, y)
     nz[0] = int(np.count_nonzero(clf.coef_))
     models.append(deepcopy(clf))
-
     for k in range(1, len(C_grid)):
         clf.set_params(C=float(C_grid[k]))
         clf.fit(Xs, y)
         nz[k] = int(np.count_nonzero(clf.coef_))
         models.append(deepcopy(clf))
-
     idx = np.where(nz == q)[0]
     if idx.size:
         j = idx[-1]
@@ -285,13 +231,11 @@ def _sweep_C_path_right_edge(Xs, y, C_grid, q, l1_ratio=None, class_weight='bala
     mask = (np.abs(chosen.coef_.ravel()) > 1e-6)
     return float(C_grid[j]), mask, nz, boundary_hit
 
-
 # ============================== This is the main stability selection function =============================
 def stability_selection_logreg( X, y, C_grid, n_subsamples=500, subsample_frac=0.5, l1_ratio=None, pi_thr=0.7, 
     class_weight='balanced',rng=None, verbose=False, return_refit=False, PFER_base= 3):
     rng = check_random_state(rng)
     n, p = X.shape
-
     # scale once
     Xs_full = StandardScaler().fit_transform(X)
     q_target = max(1, int(np.sqrt( PFER_base * (2 * pi_thr - 1) * p)))
@@ -305,7 +249,6 @@ def stability_selection_logreg( X, y, C_grid, n_subsamples=500, subsample_frac=0
         idx = _stratified_subsample_indices(y, frac=subsample_frac, rng=rng)
         Xh = Xs_full[idx]
         yh = y[idx]
-
         C_sel, mask, nz, bh = _sweep_C_path_right_edge( Xh, yh, C_grid=C_grid,
             q=q_target, l1_ratio=l1_ratio, class_weight=class_weight, seed=int(rng.randint(1_000_000_000)))
 
@@ -320,10 +263,8 @@ def stability_selection_logreg( X, y, C_grid, n_subsamples=500, subsample_frac=0
     freq = counts / float(n_subsamples)
     q_hat = float(np.mean(q_per_run))
     boundary_rate = boundary_hits / float(n_subsamples)
-
     pfer_bound = (q_hat ** 2) / ((2 * pi_thr - 1 ) * p)
     selected_idx = np.where(freq >= pi_thr)[0]
-
     out = {'freq': freq, 'selected_idx': selected_idx,'pi_thr': float(pi_thr),
         'q_hat': q_hat,'pfer_bound': pfer_bound, 'C_per_run': np.array(C_per_run),
         'q_per_run': np.array(q_per_run, dtype=int),'boundary_rate': boundary_rate}
@@ -340,12 +281,8 @@ def stability_selection_logreg( X, y, C_grid, n_subsamples=500, subsample_frac=0
         refit.fit(Xs, y)
         out['refit_coef'] = refit.coef_.ravel()
         out['refit_intercept'] = float(refit.intercept_)
-
     return out 
-
 print("Stability selection helper ready (plateau-aware C picking + refit option).")
-
-
 
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 # Cell 5: More helper functions
@@ -360,19 +297,15 @@ def youden_threshold_oof(y_true, y_score):
 SCALERS = { "robust": RobustScaler(with_centering=True, with_scaling=True, quantile_range=(25.0, 75.0)),
     "standard": StandardScaler() }
 
-
 def _stable_seed(params: dict, outer_fold: int, base: int = SEED):
     key = json.dumps(params, sort_keys=True, default=str)
     h = int(hashlib.md5(key.encode()).hexdigest(), 16) % 1_000_000_000
     return (base + outer_fold * 1_000_000 + h) % (2**31 - 1)
 
-
 def _oof_probs_with_C(X_tr_sel, y_tr, C, seed, inner_folds, scaler_key="standard", penalty='l2', l1_ratio=None):
-    
     n = len(y_tr); oof = np.full(n, np.nan, dtype=float)
     k = max(2, min(inner_folds, int(np.bincount(y_tr).min())))
     skf = StratifiedKFold(n_splits=k, shuffle=True, random_state=seed)
-
 
     if penalty in ('l1','elasticnet'):
         solver, l1r = 'saga', (None if penalty=='l1' else float(l1_ratio))
@@ -380,7 +313,7 @@ def _oof_probs_with_C(X_tr_sel, y_tr, C, seed, inner_folds, scaler_key="standard
         solver, l1r = 'lbfgs', None
     else:
         raise ValueError("penalty must be one of: 'l1','elasticnet','l2','none'.")
-
+        
     base = Pipeline(steps=[ ("imp", SimpleImputer(strategy="median")),  ("sc", SCALERS[scaler_key]),
         ("clf", LogisticRegression( penalty=penalty, solver=solver, C=C, l1_ratio=l1r, class_weight="balanced",
             max_iter=5000, tol=1e-4,  warm_start=False, random_state=seed)) ])
@@ -390,15 +323,11 @@ def _oof_probs_with_C(X_tr_sel, y_tr, C, seed, inner_folds, scaler_key="standard
         oof[va_i] = pipe.predict_proba(X_tr_sel[va_i])[:, 1]
     return oof
 
-
 # Compute inner-CV balanced accuracies for a given C and preprocessing setup
 def _inner_baccs_for_C(X_tr_sel, y_tr, C, seed, inner_folds, scaler_key="standard", penalty='l2', l1_ratio=None, class_weight="balanced"):
     baccs = []
-    # skf = StratifiedKFold(n_splits=inner_folds, shuffle=True, random_state=seed)
-
     k = max(2, min(inner_folds, int(np.bincount(y_tr).min())))
     skf = StratifiedKFold(n_splits=k, shuffle=True, random_state=seed)
-
     if penalty in ('l1', 'elasticnet'):
         solver, l1r = 'saga', (None if penalty == 'l1' else float(l1_ratio))
     elif penalty in ('l2', 'none'):
@@ -409,7 +338,6 @@ def _inner_baccs_for_C(X_tr_sel, y_tr, C, seed, inner_folds, scaler_key="standar
     base_pipe = Pipeline(steps=[ ("imp", SimpleImputer(strategy="median")), ("sc", SCALERS[scaler_key]),
         ("clf", LogisticRegression(penalty=penalty, solver=solver, C=C, l1_ratio=l1r, class_weight=class_weight, 
                                    max_iter=5000, tol=1e-4, warm_start=False, random_state=seed)) ])
-
     for tr_i, va_i in skf.split(X_tr_sel, y_tr):
         pipe = clone(base_pipe)
         pipe.fit(X_tr_sel[tr_i], y_tr[tr_i])
@@ -417,14 +345,10 @@ def _inner_baccs_for_C(X_tr_sel, y_tr, C, seed, inner_folds, scaler_key="standar
         y_va = y_tr[va_i]
         preds = (prob >= 0.5).astype(int)
         baccs.append(balanced_accuracy_score(y_va, preds))
-
     return np.asarray(baccs, float)
-
-
 
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 # Cell 6: Function to iterate over subjects to perform stability selection with LOSO  
-
 def run_loso_once(X_subj, y_labels, subject_id, STAB_SEARCH_GRID, FINAL_PENALTIES=('l2',), FINAL_C_GRID=np.logspace(-5, 4, 180),
                   GLOBAL_MIN_FREQ=0.7, GLOBAL_TOP_K=20, INNER_FOLDS=3, SCALERS=SCALERS,  agg_names=None, # optional names for features (len = p)
                   out_dir=out_dir,   cluster_label=CLUSTER,    target_label='D',  SEED=42, verbose=True ):
@@ -439,8 +363,6 @@ def run_loso_once(X_subj, y_labels, subject_id, STAB_SEARCH_GRID, FINAL_PENALTIE
     per_fold_selected = []
     y_true_all, y_prob_all, y_pred_all = [], [], []
     fold_rows = []
-
-
     outer_fold = 0
     logo = LeaveOneGroupOut()
     for train_idx, test_idx in logo.split(X_subj, y_labels, subject_id):
@@ -469,7 +391,6 @@ def run_loso_once(X_subj, y_labels, subject_id, STAB_SEARCH_GRID, FINAL_PENALTIE
         best_inner_auc = -np.inf
         BEST_CACC_MIN, BEST_CACC_MAX = np.nan, np.nan
         best_stats_this = None
-
 
         # 1) Stability selection over grid + quick screen
         screened = []
@@ -502,7 +423,7 @@ def run_loso_once(X_subj, y_labels, subject_id, STAB_SEARCH_GRID, FINAL_PENALTIE
             if sel_idx_filt.size == 0:
                 print(f"  [fold {outer_fold}] candidate skipped (no features selected).")
                 continue
-
+                
             screened.append({ "params": params_local,  "sel_idx_filt": sel_idx_filt,
                 "q_hat": float(stab.get("q_hat", np.nan)),  "pfer": float(stab.get("pfer_bound", np.nan)),
                 "C_per_run": stab.get("C_per_run", None),  "freq_full": freq_full,
@@ -510,7 +431,6 @@ def run_loso_once(X_subj, y_labels, subject_id, STAB_SEARCH_GRID, FINAL_PENALTIE
 
         if not screened: raise RuntimeError("stability_selection produced no viable candidates.")
 
-        
         # ============================
         # MINIMAL PATCH: if FINAL_PENALTIES are only 'none', skip the entire inner FINAL sweep
         # and choose stability-selection output deterministically (no dependence on FINAL_C_GRID).
@@ -529,7 +449,6 @@ def run_loso_once(X_subj, y_labels, subject_id, STAB_SEARCH_GRID, FINAL_PENALTIE
                 return (np.nan_to_num(q, nan=-np.inf),
                         -np.nan_to_num(br, nan=np.inf),
                         ffm)
-
             cand_best = max(screened, key=_cand_key)
 
             # Freeze features from stability selection (NOT from the final fit / inner sweep)
@@ -550,18 +469,15 @@ def run_loso_once(X_subj, y_labels, subject_id, STAB_SEARCH_GRID, FINAL_PENALTIE
             BEST_C_STATS       = None
 
         else:
-        
             # 2) Inner FINAL sweep with 1-SE rule
             for cand in screened:
                 sel_idx_filt = cand["sel_idx_filt"]
                 X_tr_sel = X_tr[:, sel_idx_filt]
-            
                 # best inner-CV BAcc for this stability-selection candidate
                 best_bacc_this = -np.inf
                 best_C_this, best_scaler_key, best_l1r_this, best_penalty_this = None, None, None, None
                 best_Cacc_min_this, best_Cacc_max_this = np.nan, np.nan
-    
-            
+                
                 for scaler_key in SCALERS.keys():
                     for pen in FINAL_PENALTIES:
                         if pen in ("none",None, "l2"):
@@ -579,14 +495,12 @@ def run_loso_once(X_subj, y_labels, subject_id, STAB_SEARCH_GRID, FINAL_PENALTIE
                         for C in FINAL_C_GRID:
                             baccs = _inner_baccs_for_C(
                                 X_tr_sel, y_tr, C, SEED, INNER_FOLDS,
-                                scaler_key=scaler_key, penalty=pen, l1_ratio=l1r_try
-                            )
+                                scaler_key=scaler_key, penalty=pen, l1_ratio=l1r_try )
                             mean_bacc = baccs.mean()
                             se_bacc = baccs.std(ddof=1) / np.sqrt(len(baccs)) if baccs.size > 1 else 0.0
                             stats.append((C, mean_bacc, se_bacc))
                         
                         stats_rec = [{"C": float(C), "mean_bacc": float(m), "se_bacc": float(se)} for (C, m, se) in stats]
-    
             
                         means = np.array([m for (_, m, _) in stats], float)
                         best_i = int(np.argmax(means))
@@ -600,7 +514,6 @@ def run_loso_once(X_subj, y_labels, subject_id, STAB_SEARCH_GRID, FINAL_PENALTIE
                         
                         C_acc_min = min(acceptable, key=lambda cm: cm[0])[0]
                         C_acc_max = max(acceptable, key=lambda cm: cm[0])[0]
-                        
                         C_choice, score_choice = min(acceptable, key=lambda cm: cm[0])
                         
                         if (score_choice > best_bacc_this) or (np.isclose(score_choice, best_bacc_this) and
@@ -613,8 +526,7 @@ def run_loso_once(X_subj, y_labels, subject_id, STAB_SEARCH_GRID, FINAL_PENALTIE
                             best_Cacc_min_this = C_acc_min
                             best_Cacc_max_this = C_acc_max
                             best_stats_this = stats_rec
-    
-                                
+            
                 if best_bacc_this > best_inner_bacc:
                     best_inner_bacc = best_bacc_this
                     BEST_STAB = cand["params"]
@@ -627,8 +539,7 @@ def run_loso_once(X_subj, y_labels, subject_id, STAB_SEARCH_GRID, FINAL_PENALTIE
                     CHOSEN_BOUNDARY = cand["boundary_rate"]
                     BEST_CACC_MIN, BEST_CACC_MAX = best_Cacc_min_this, best_Cacc_max_this
                     BEST_C_STATS = best_stats_this
-    
-                    
+
                     # defensive check (optional)
                     if best_sel_idx_filt is None:
                         raise RuntimeError("Inner FINAL sweep failed to select any viable model.")
@@ -642,7 +553,6 @@ def run_loso_once(X_subj, y_labels, subject_id, STAB_SEARCH_GRID, FINAL_PENALTIE
         else:
             per_fold_selected.append(sel_idx_full.tolist())
         per_fold_freq_full.append(BEST_FREQ_FULL if BEST_FREQ_FULL is not None else np.zeros(p, float))
-
         # OOF train probabilities for metrics + threshold
         X_tr_sel = X_tr[:, best_sel_idx_filt]
         X_te_sel = X_te[:, best_sel_idx_filt]
@@ -651,7 +561,6 @@ def run_loso_once(X_subj, y_labels, subject_id, STAB_SEARCH_GRID, FINAL_PENALTIE
                                        penalty=BEST_PENALTY, l1_ratio=BEST_L1_RATIO)
         thr = 0.5
         # thr = youden_threshold_oof(y_tr, oof_probs)
-
         loss_tr_oof = log_loss(y_tr, oof_probs, labels=[0, 1])
         yhat_tr_oof = (oof_probs >= thr).astype(int)
         acc_tr_oof  = accuracy_score(y_tr, yhat_tr_oof)
@@ -665,8 +574,7 @@ def run_loso_once(X_subj, y_labels, subject_id, STAB_SEARCH_GRID, FINAL_PENALTIE
         final_pipe = Pipeline(steps=[("imp", SimpleImputer(strategy="median")),("sc", SCALERS[BEST_SCALER_KEY]),
                                       ("clf", LogisticRegression(penalty=BEST_PENALTY, solver=solver, C=C_final,
                                                                  l1_ratio=l1r_use, class_weight="balanced", 
-                                                                 max_iter=5000, tol=1e-4, warm_start=False, random_state=SEED))
-                                    ])
+                                                                 max_iter=5000, tol=1e-4, warm_start=False, random_state=SEED))   ])
         final_pipe.fit(X_tr_sel, y_tr)
 
         prob_te = final_pipe.predict_proba(X_te_sel)[:, 1]
@@ -698,8 +606,7 @@ def run_loso_once(X_subj, y_labels, subject_id, STAB_SEARCH_GRID, FINAL_PENALTIE
                 f"C={C_report:.4g}| scaler={BEST_SCALER_KEY}| "
                 f"AUC(tr-OOF)={auc_tr_oof:.3f} | "
                 f"BAcc(tr-OOF)={bacc_tr_oof:.3f}  BAcc(te)={bacc_te:.0f} | "
-                f"Loss(tr-OOF)={loss_tr_oof:.3f}  Loss(te)={loss_te:.3f}"
-            )
+                f"Loss(tr-OOF)={loss_tr_oof:.3f}  Loss(te)={loss_te:.3f}" )
 
         fold_rows.append({
             "fold": outer_fold,
@@ -722,8 +629,7 @@ def run_loso_once(X_subj, y_labels, subject_id, STAB_SEARCH_GRID, FINAL_PENALTIE
             "boundary_rate": float(CHOSEN_BOUNDARY),
             "stab_params": BEST_STAB,
             "scaler": BEST_SCALER_KEY,
-            "C_curve_final": BEST_C_STATS,   # list of dicts, JSON-serializable
-        })
+            "C_curve_final": BEST_C_STATS,  })
 
 
     # --- Outer pooled metrics ---
@@ -737,7 +643,6 @@ def run_loso_once(X_subj, y_labels, subject_id, STAB_SEARCH_GRID, FINAL_PENALTIE
     ACC  = accuracy_score(y_true_all, y_pred_all)
     BACC = balanced_accuracy_score(y_true_all, y_pred_all)
     F1   = f1_score(y_true_all, y_pred_all)
-
 
     # --- Outer metrics at Youden threshold (post-hoc) ---
     thr_youden_outer = youden_threshold_oof(y_true_all, y_prob_all)
@@ -757,7 +662,6 @@ def run_loso_once(X_subj, y_labels, subject_id, STAB_SEARCH_GRID, FINAL_PENALTIE
     
     lo, hi = (thr_youden_outer, 0.5) if thr_youden_outer < 0.5 else (0.5, thr_youden_outer)
     print("n_scores_between:", np.sum((y_prob_all >= lo) & (y_prob_all < hi)))
-# ==================================================
 
     if verbose:
         tag = target_label if target_label is not None else "—"
@@ -828,8 +732,6 @@ def run_loso_once(X_subj, y_labels, subject_id, STAB_SEARCH_GRID, FINAL_PENALTIE
         "outer_preds": outer_preds,  "global_stable_idx": global_stable_idx, "global_stable_features": global_stable_features,
         "per_fold_freq_full": per_fold_freq_full, "per_fold_selected_names": per_fold_selected }
 
-
-
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 #  Cell 7: Evaluation for hyperparam tuning: 3-fold cross-validation
 
@@ -846,7 +748,6 @@ def evaluate_block(X, y, pfer, pi_thr, l1_ratio, C_grid, cv_folds=3, base_seed=4
     for fold_n, (train_idx, val_idx) in enumerate(skf.split(X, y)):
         X_tr, X_val = X[train_idx], X[val_idx]
         y_tr, y_val = y[train_idx], y[val_idx]
-
         stab_res = stability_selection_logreg(
             X_tr, y_tr, C_grid=C_grid, n_subsamples=500, subsample_frac=0.5,
             l1_ratio=l1_ratio, pi_thr=pi_thr, class_weight="balanced",
@@ -855,7 +756,6 @@ def evaluate_block(X, y, pfer, pi_thr, l1_ratio, C_grid, cv_folds=3, base_seed=4
         for c in stab_res.get("C_per_run", []):
             if c not in C_used:
                 C_used.append(c)
-
         stable_idx = stab_res["selected_idx"]
 
         if stable_idx.size == 0:
@@ -881,7 +781,6 @@ def evaluate_block(X, y, pfer, pi_thr, l1_ratio, C_grid, cv_folds=3, base_seed=4
 
             pipe.fit(X_tr_s, y_tr)
             y_pred = pipe.predict(X_val_s)
-
             bacc = balanced_accuracy_score(y_val, y_pred)
             acc = accuracy_score(y_val, y_pred)
 
@@ -907,10 +806,8 @@ def evaluate_block(X, y, pfer, pi_thr, l1_ratio, C_grid, cv_folds=3, base_seed=4
 
     return avg_bacc, avg_acc, fold_scalers, C_used, fold_metrics
 
-
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ 
 # Cell 8: Tuning call (Run to roughly find how each triplet of (pfer, pi,l1) performas 
-
 PFER_MAX = np.ceil(X_subj.shape[1]/10)   # we set the max range of PFER exploration equal to the 10% of the total number of features rounded up
 PFER_GRID     = list(range(1, PFER_MAX))
 PI_THR_GRID   = [round(x, 2) for x in np.arange(0.6, 1.0, 0.05)]
@@ -948,7 +845,6 @@ results = Parallel(n_jobs=-1, backend="loky", verbose=10, batch_size=1)(delayed(
 for ip, ii, il, avg_bacc, avg_acc, scalers, Cvals, fm_list in results:
     bacc_grid[ip, ii, il] = float(avg_bacc)
     acc_grid[ip,  ii, il] = float(avg_acc)
-
     key = (ip, ii, il)
     fold_metrics_dict[key] = fm_list
     C_values_dict[key]     = list(Cvals) if Cvals is not None else []
@@ -971,8 +867,6 @@ if out_dir is not None:
              PFER_GRID=np.array(PFER_GRID), PI_THR_GRID=np.array(PI_THR_GRID), L1_RATIO_GRID=np.array(L1_RATIO_GRID),
              C_values_dict=C_values_dict, scaler_votes_dict=scaler_votes_dict)
 
-
-
 # To load the already calculated tuning data: So if we run the code later, use the pre-saved npz file from previous cell!
 out_dir  = "./stability_results/LPFC_WE"
 data_path = os.path.join(out_dir,  f"stability_grid_{CLUSTER}_WE.npz")
@@ -992,8 +886,6 @@ fold_metrics_dict  = data["fold_metrics_dict"].item()
 C_values_dict      = data["C_values_dict"].item()
 scaler_votes_dict  = data["scaler_votes_dict"].item()
 
-
-
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ 
 # Cell 9: Visualize the BAcc of the hyperparam grid space to get an idea!
 # ---- df_summary from grids ----
@@ -1005,7 +897,6 @@ for ip, pfer in enumerate(PFER_GRID):
             if np.isnan(b): 
                 continue
             rows.append((pfer, pi, l1, float(b), float(acc_grid[ip, ii, il])))
-
 df_summary = pd.DataFrame(rows, columns=["pfer","pi_thr","l1_ratio","mean_bacc","mean_acc"])
 
 # ---- 1D mean + IQR bands ----
@@ -1021,7 +912,6 @@ def compute_iqr(df, var):
 df_pfer = compute_iqr(df_summary, "pfer")
 df_pi   = compute_iqr(df_summary, "pi_thr")
 df_l1   = compute_iqr(df_summary, "l1_ratio")
-
 fig, axes = plt.subplots(1, 3, figsize=(18, 4), dpi=130)
 
 for ax, df_iqr, label in zip(axes, [df_pfer, df_pi, df_l1], ["PFER", "pi_thr", "l1_ratio"]):
@@ -1029,10 +919,8 @@ for ax, df_iqr, label in zip(axes, [df_pfer, df_pi, df_l1], ["PFER", "pi_thr", "
 
     ax.plot(x, df_iqr["mean_bacc_mean"], marker="o", label="BAcc")
     ax.fill_between(x, df_iqr["mean_bacc_q25"], df_iqr["mean_bacc_q75"], alpha=0.2)
-
     ax.plot(x, df_iqr["mean_acc_mean"], marker="x", label="Acc")
     ax.fill_between(x, df_iqr["mean_acc_q25"], df_iqr["mean_acc_q75"], alpha=0.2)
-
     ax.set_title(label)
     ax.set_xlabel(label)
     ax.set_ylabel("Score")
@@ -1071,11 +959,9 @@ for ax, (row, col) in zip(axes, pairs):
     best = df_summary.groupby([row, col])["mean_bacc"].max().reset_index()
     piv  = best.pivot(index=row, columns=col, values="mean_bacc")
     show_heat(ax, piv, f"{row} vs {col} (best BAcc)")
-
 fig.tight_layout()
 # fig.savefig(os.path.join(out_dir, "2D_best_BAcc_surfaces.png"), dpi=200)
 # plt.close(fig)
-
 
 # # **Find the best triplet for generalizability**
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ 
@@ -1165,7 +1051,7 @@ near_int = near[(near["feat_median"] >= MIN_FEATS) & (near["feat_median"] <= MAX
 if near_int.empty:
     print("No configs met the feature-count window within ΔBAcc; relaxing MIN/MAX feats.")
     near_int = near.copy()
-
+    
 IQR_THR = 2.0
 near_stable = near_int[near_int["feat_iqr"] <= IQR_THR].copy()
 if near_stable.empty:
@@ -1180,20 +1066,17 @@ ranked = near_stable.sort_values(
     ascending=[False,     True,      True,    False,   True,      True]   # pi high, pfer low
 ).reset_index(drop=True)
 
-
 # ---- Priority: PFER before pi_thr ----
 # ranked = near_stable.sort_values(
 #     ["mean_bacc", "feat_iqr", "feat_median", "pfer", "pi_thr", "l1_dist_to_0p6"],
 #     ascending=[False, True, True, True, False, True]   # low PFER first, high pi_thr next
 # ).reset_index(drop=True)
 
-
 TOP_K = 15
 print(f"Best eligible mean_BAcc = {best_mean:.3f}. Keeping configs within ΔBAcc = {DELTA_BACC:.3f} -> threshold = {(best_mean-DELTA_BACC):.3f}")
 print(f"Showing top-{TOP_K} biomarker-first candidates (including cmin/cmax):")
 display_cols = ["pfer","pi_thr","l1_ratio","mean_bacc","se_bacc","feat_median","feat_iqr","empty_rate","n_valid_folds","cmin","cmax"]
 display(ranked[display_cols].head(TOP_K))
-
 
 
 print("\nSelected biomarker-first config:")
@@ -1235,14 +1118,10 @@ display(tiers_df[["pfer","pi_thr","l1_ratio","mean_bacc","feat_median","feat_iqr
 
 best_biomarker = tiers_df.iloc[0]
 
-
-
 # # ***Running unpenalized LOSO to extract the stable features per fold*** 
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ 
 # Cell 11: LOSO call 
-
 SCALERS = {"standard": StandardScaler(), "robust": RobustScaler()}
-
 # ---- best triplet from Cell 11 selection ----
 pfer_best = int(best_biomarker["pfer"])
 pi_best   = float(best_biomarker["pi_thr"])
@@ -1254,7 +1133,6 @@ ppd = 20  # points/decade
 lo1, hi1 = np.log10(cmin), np.log10(cmax)
 n1 = int(np.clip(np.ceil((hi1 - lo1) * ppd) + 1, 20, 500))
 C_STAB = np.logspace(lo1, hi1, n1)
-
 # final C sweep (fixed wide range: here unused since penalty is none)
 ppd = 20
 # lo2, hi2 = -5, 4
@@ -1290,7 +1168,6 @@ res = run_loso_once(
     SEED=42,
     verbose=True )
 
-
 fold_df    = res["fold_df"]
 stab_df    = res["stab_df"]
 metrics    = res["outer_metrics"]
@@ -1318,7 +1195,6 @@ def pooled_loso_curves_all(X_subj, y_labels, fold_df, sel_list, agg_names, C_gri
       xlog, y_true, P_te, THR_nested, bacc05, bacc_posthocY, bacc_nestedY, thr_posthoc
     """
     nC = len(C_grid); N = len(fold_df)
-
     y_true = np.array([int(y_labels[int(i)]) for i in fold_df["left_out_idx"].values], dtype=int)
     P_te = np.full((N, nC), np.nan, float)
     THR_nested = np.full((N, nC), np.nan, float)
@@ -1385,8 +1261,7 @@ if len(sel_list) > 0 and len(sel_list[0]) > 0 and isinstance(sel_list[0][0], (in
 # Compute curves (THIS defines bacc05, bacc_posthocY, bacc_nestedY)
 xlog, y_true, P_te, THR_nested, bacc05, bacc_posthocY, bacc_nestedY, thr_posthoc = pooled_loso_curves_all(
     X_subj, y_labels, fold_df, sel_list, agg_names, C_grid, SCALERS,
-    inner_folds=3, seed=42
-)
+    inner_folds=3, seed=42)
 
 iC_rep = int(np.nanargmax(bacc05))
 C_rep  = float(C_grid[iC_rep])
@@ -1412,11 +1287,8 @@ fig.tight_layout()
 fig.savefig(os.path.join(out_dir, f"BAcc_vs_C_{CLUSTER}.png"), dpi=300, bbox_inches="tight")
 plt.show()
 
-
-
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ 
 # Cell 13: Summary of the best results for the selected triplet 
-
 C_FINAL = np.logspace(lo2, hi2, n2)
 C_grid = np.asarray(C_FINAL, float)
 b = np.asarray(bacc05, float)
@@ -1449,7 +1321,6 @@ print("  Best AUC within BAcc plateau:", auc_plateau_max)
 # Post-hoc Youden (optimistic)
 bacc_posthocY_star = float(np.nanmax(bacc_posthocY))
 bacc_posthocY_plateau = float(np.nanmax(bacc_posthocY[good]))
-
 # Nested Youden (unbiased, noisy)
 bacc_nestedY_star = float(np.nanmax(bacc_nestedY))
 bacc_nestedY_plateau = float(np.nanmax(bacc_nestedY[good]))
@@ -1643,12 +1514,9 @@ fig_name = f"ROC_fixedC_{CLUSTER}.png"
 fig.savefig(os.path.join(out_dir, fig_name), dpi=300, bbox_inches="tight")
 plt.show()
 
-
-
 # # **Visualization and reporting of the results**
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ 
 # Cell 15 : Top stable features + final-fit coef at fixed C 
-
 best_params = best_biomarker
 def make_pretty_label(feat):
     f = str(feat)
@@ -1656,7 +1524,6 @@ def make_pretty_label(feat):
     f = f.replace("powermean", r"$\hat{P}$")
     f = f.replace("_|", "|")
     return f
-
 # Choose the fixed C setting
 # Use the same C as reported coefficients/ROC: C_rep (from plateau) or C_USE_FOR_ROC (best AUC within plateau)
 C_use = float(C_rep)
@@ -1696,8 +1563,7 @@ final_pipe = Pipeline([
     ("clf", LogisticRegression(
         penalty="l2", solver="lbfgs", C=C_use,
         class_weight="balanced", max_iter=5000, tol=1e-4,
-        random_state=42))
-])
+        random_state=42))])
 final_pipe.fit(X, y)
 coef = final_pipe.named_steps["clf"].coef_.ravel()
 
@@ -1705,7 +1571,6 @@ coef_final_df = pd.DataFrame({
     "feature": feat_names,
     "coef_final": coef,
     "abs_coef_final": np.abs(coef)})
-
 
 # Merge nested stability + fixed-C coefficients
 stab_use = stab_df.copy()
@@ -1732,8 +1597,7 @@ top_df = top_df[[
     "coef_mean",
     "coef_abs_mean",
     "coef_final",
-    "abs_coef_final",
-]]
+    "abs_coef_final",]]
 
 # Rename for readability
 top_df = top_df.rename(columns={
@@ -1744,8 +1608,7 @@ top_df = top_df.rename(columns={
     "coef_mean":         r"Coef$_{nested}$ (mean)",
     "coef_abs_mean":     r"|Coef$_{nested}$| (abs mean)",
     "coef_final":        r"Coef$_{final}$ (C fixed)",
-    "abs_coef_final":    r"|Coef$_{final}$|",
-})
+    "abs_coef_final":    r"|Coef$_{final}$|",})
 
 # Round numeric columns
 num_cols = [c for c in top_df.columns if c != "Feature"]
@@ -1824,8 +1687,6 @@ has_binary = (mask.sum() >= 2) and (np.unique(y_true[mask]).size == 2)
 
 print(f"[Cell16] Fixed-C reporting: requested C={C_use:.6g} | using C={C_used_exact:.6g} | n={mask.sum()}")
 print(f"[Cell16] AUC sanity (fixed C): {roc_auc_score(y_true[mask], y_prob[mask]):.6f}")
-
-
 # ------------------------- Helpers -------------------------
 def _bootstrap_curve_stats(y, s, *, n_boot=1000, seed=42, grid=None, mode="roc"):
     rng = np.random.RandomState(seed)
@@ -1913,8 +1774,7 @@ else:
         "thr_youden_outer": np.nan,
         "ACC_youden_outer": np.nan,
         "BACC_youden_outer": np.nan,
-        "n_subjects": int(mask.sum()),
-    }
+        "n_subjects": int(mask.sum()), }
 
 # Per-fold means 
 means_fold = {}
@@ -1943,7 +1803,6 @@ for k in ["thr_youden_outer","ACC_youden_outer","BACC_youden_outer"]:
         print(f"{k}: {val:.3f}")
     else:
         print(f"{k}: {val}")
-
 print("\n=== Per-fold means ===")
 for k,v in means_fold.items():
     if isinstance(v, float) and not np.isnan(v):
@@ -2058,7 +1917,6 @@ if has_binary:
     else:
         plt.close(fig)
 
-
 if has_binary:
     labels = [0, 1]
     thr_y = float(summary_outer["thr_youden_outer"])
@@ -2095,8 +1953,6 @@ if has_binary:
                 dpi=300, bbox_inches="tight")
     if _CAN_DISPLAY: plt.show()
     else: plt.close(fig)
-
-
 
 # ===== 4) Per-fold AUC (train vs test) =====
 if {"auc_train","fold"}.issubset(fold_df.columns):
@@ -2258,11 +2114,8 @@ overall_df.to_csv(os.path.join(OUT_DIR, f"overall_summary_{CLUSTER_LABEL}_{TARGE
 
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ 
 # Cell 17: Features plot (FIXED-C coefficients) — order: freq primary, |coef| tie-break 
-
-# Output dir (same convention as above)
 OUT_DIR = globals().get("out_dir", ".")
 os.makedirs(OUT_DIR, exist_ok=True)
-
 # Try to detect if we can display
 try:
     from IPython.display import display  # noqa
@@ -2291,7 +2144,6 @@ assert "X_subj" in globals() and "y_labels" in globals(), "X_subj and y_labels r
 
 # pick scaler for final interpretability (same convention you used elsewhere)
 scaler_mode = fold_df["scaler"].value_counts().idxmax()
-
 name_to_idx = {nm: i for i, nm in enumerate(agg_names)}
 y = y_labels.astype(int)
 
@@ -2317,27 +2169,21 @@ def _make_top_df(freq_col, TOP_K):
           .sort_values(freq_col, ascending=False)
           .head(TOP_K)[["feature", freq_col]]
           .copy())
-
     # compute fixed-C coefficients for these TOP_K features
     coef_fixedC = _fixedC_coefs_for_features(df["feature"].tolist())
     df["coef_mean"] = coef_fixedC
     df["coef_abs_mean"] = np.abs(coef_fixedC)
-
     # ensure plotting code can stay unchanged (uses 'fold_select_freq')
     df["fold_select_freq"] = df[freq_col].to_numpy(float)
-
     # ORDER: frequency primary, |coef| secondary
     df = df.sort_values([freq_col, "coef_abs_mean"], ascending=[False, False]).copy()
-
     # keep only columns the plot expects
     df = df[["feature", "fold_select_freq", "coef_mean", "coef_abs_mean"]]
-
     # keep your original convention (largest appears at top in barh)
     return df.iloc[::-1].reset_index(drop=True)
 
 # ---- build both top_dfs ----
 TOP_K = min(20, stab_df.shape[0])
-
 top_df_final = _make_top_df("fold_select_freq", TOP_K)  # "final fit" frequency proxy
 top_df_stab  = _make_top_df("freq_mean", TOP_K)         # stability-selection frequency (mean)
 
@@ -2515,8 +2361,6 @@ if _CAN_DISPLAY:
 else:
     plt.close(fig)
 
-
-
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ 
 #  Cell 18: misclassified subjects table via subject_id join  
 assert "P_te" in globals()
@@ -2524,7 +2368,6 @@ assert "mf" in globals(), "Need mf (path to the cohort .mat file) in scope."
 assert "C_grid" in globals() and "b" in globals() and "C_rep" in globals()
 assert "out_dir" in globals() and "CLUSTER" in globals()
 assert "subject_id" in globals(), "Need subject_id from Cell 3 (the LOSO group ids)."
-
 # y_true aligned to P_te
 if "y_labels" in globals():
     y_true_vec = np.asarray(y_labels, int)
@@ -2585,8 +2428,7 @@ pred = pd.DataFrame({
     "subject_id_raw": np.asarray(subject_id).reshape(-1),
     "y_true": y_true_vec,
     "yhat": yhat_rep,
-    "p1": p1_rep,
-})
+    "p1": p1_rep,})
 pred["subject_id_int"] = _to_int_key(pred["subject_id_raw"].to_numpy())
 
 # ---- merge predictions with meta by subject_id_int ----
