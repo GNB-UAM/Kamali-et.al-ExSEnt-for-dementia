@@ -7,127 +7,161 @@
 % Hurst exponent and Sample Entropy at each band and also for the whole range of 3 to 60 Hz.
 %This feature matrix is saved in a 4D data matrix to pass to DL models for classification!
 
-data_path = 'C:\Users\SARA\Documents\MATLAB_files\data\Dementia';
-eeglab_path = 'C:\Users\SARA\Documents\MATLAB_files\codes\eeglab2024.1';
-code_path = 'C:\Users\SARA\Documents\MATLAB_files\codes\dementia';
+data_path = 'path to data';
+eeglab_path = 'path to eeglab';
+code_path = 'path to codes root';
 addpath(data_path, eeglab_path, code_path)
 eeglab;close
 
-% Load Meta data (subject ID, gender, Age, disease group, MMSE score)
+% Load subjects info file (subject ID, gender, Age, disease group, MMSE score)
 load('dementia_meta_data.mat');
 num_sub = length(meta);
 
-bands = {3:7.5, 8:12.5, 13:27.5, 28:48, 48:60};
-n_bands = length(bands);
-%% Load the data of all the subjects
-for sub =1:num_sub
-    sub_dir = sprintf('%s\\s%03d',data_path,sub);
-    cd(sub_dir)
-    file_name = sprintf('%s_task-eyesclosed_eeg.set', meta(sub).subject_id);
-    EEG=pop_loadset(file_name,sub_dir);
-    fs = EEG.srate;
-    % High-pass filter
-    f_low =2; % set it to 2 since for SFFT we set the window size to 500 ms
-    f_high = 60;
-    EEG = pop_eegfiltnew(EEG, 'locutoff', f_low, 'hicutoff',f_high ,'plotfreqz', 0);
-    % Clean line noise
-    for ii = 1:3
-        EEG = pop_cleanline(EEG, 'bandwidth', 4, 'chanlist', 1:EEG.nbchan, ...
-            'linefreqs', 50, 'newversion', 0, 'winsize', 7, 'winstep', 7);
-    end
+clusters      = [3,7,8,10];
+cluster_names = {'RPFC','RVA','LVA','LPFC'};
 
-    % ASR-based cleaning
-    EEG = pop_clean_rawdata(EEG, 'FlatlineCriterion', 'off', 'ChannelCriterion', 'off', ...
-        'LineNoiseCriterion', 'off', 'Highpass', 'off', 'BurstCriterion', 15,  ...
-        'WindowCriterion', 0.2,'BurstRejection','on', 'Distance', 'Euclidian', 'WindowCriterionTolerances', [-Inf 7]);
 
-    % Common average reference
-    EEG = pop_reref( EEG, []);
+frq_edges     = [ 1 4 ; 4 8 ; 8 12 ; 12 30 ; 30 48 ; 52 100 ];
+band_names    = {'Delta','Theta','Alpha','Beta','Low Gamma','High Gamma'};
+selected_bands = [2,3,4,5,6];
+num_bands     = numel(band_names);
+num_selected_bands     = numel(selected_bands);
 
-    % Target frequency range (3 to 48 Hz with .5 Hz step)
-    target_freqs = f_low:.5: f_high;
+fs   = 500;
 
-    segment_window_length = 2; % 1 seconds window for segmentation of data
-    segment_window_length_idx = segment_window_length* fs; % Number of index per segment
-    segments_overlap = 0; % no overlap
-   
-    % Extract a time window of the EEG to have balanced data of each subject
-    Tstart=120; %start from after 120 seconds
-    Tend = 280; % Extract 160 seconds of data
-    start_idx=find(EEG.times>=Tstart*1000,1);
-    end_idx = find(EEG.times>=Tend*1000,1);
-    n_samples = end_idx-start_idx; % number of samples in the windowed data
+% --- Feature parameters ---
+m        = 2;       % embedding dimension
+lambda   = 0.01;
+alpha    = 0.2;     % tolerance (Sample Entropy)
+kmax     = 20;      % for Higuchi FD
+trial_duration = 24;     % The length of the windows to compute featires: 24 seconds
+win_len     = trial_duration * fs;
+overlap = 0.5; % 50% overlap 
+step =round(win_len * (1 - overlap)) ; %step size in computing features
 
-    % Number of segmnets over selected time window
-    n_segments = n_samples/segment_window_length_idx ;
+% --- Storage over clusters ---
+num_cls = numel(clusters);
+all_features_clusters   = cell(1, num_cls);
+num_trls_per_subject    = cell(1, num_cls);
 
-    % We want to extract power at each band, the peak frequency at each band, and the peak
-    % frequency in the whole range of frequencies lower than 28 and higher than 28 and the
-    % hurst exponent and sample entropy of each band and the whole bands
-   n_features = n_bands *5 + 5; 
+%% Loop over clusters
+for icl = 1:num_cls
+    cls        = clusters(icl);
+    subjects   = subjects_per_cluster{cls};
+    components = components_per_cluster{cls};
+    num_sub    = numel(subjects);
+    cluster_features = cell(1, num_sub);  % one entry per subject
 
-   
+    for isub = 1:num_sub
+        current_subject = subjects(isub);
+        current_comp    = components(isub);
+        % --- Load bandpassed signal, phase, power ---
+        sub_dir = sprintf('%s/s%03d', data_path, current_subject);
+        cd(sub_dir);
 
-    % Initiate matrix to save results
-    features_matrix= zeros (EEG.nbchan, n_segments, n_features);
-    for current_channel = 1: EEG.nbchan
-        EEG_channel = EEG.data(current_channel,start_idx+1: end_idx);
-        [s, f, t] = spectrogram(EEG_channel, segment_window_length_idx, segments_overlap, target_freqs, fs);
-        % Power
-        log_power =log10(abs(s).^2)'; % segments x frequencies
-        power = (abs(s).^2)';
+        load(sprintf('bandpassed_s%03d_IC%d.mat', current_subject, current_comp), 'signal_bp');
+        load(sprintf('band_power_s%03d_IC%d.mat',   current_subject, current_comp), 'power_bp');
 
-        % find the power, the peak frequency, Hurst exponet, sample entropy and Katz dimension at each band
-        band_log_power = zeros(n_segments,n_bands);
-        band_peak_fr = zeros(n_segments,n_bands);
-        hurst_exp  = zeros(n_segments,n_bands);
-        sam_en = zeros(n_segments,n_bands);
-        m = 2; %embedding dimension
-        r =0.2;% tolerance threshold
-        KFD =  zeros(n_segments,n_bands);
-        for band = 1:n_bands
-            current_band= bands{band};
-            idx1_band=find(target_freqs==current_band(1),1);
-            idx2_band=find(target_freqs==current_band(end),1);
-            band_log_power(:,band) = mean(log_power(:,idx1_band:idx2_band),2);
-            [~,idx_max]= max(log_power(:,idx1_band:idx2_band),[],2);
-            band_peak_fr(:,band) = target_freqs(idx_max+idx1_band-1);
-            % Using arrayfun to apply hurst_exponent row by row
-            hurst_exp(:, band) = arrayfun(@(row) hurst_exponent(power(row, idx1_band:idx2_band)), (1:size(log_power, 1))');
-            % Using arrayfun to apply sample_entropy row by row
-            sam_en(:, band) = arrayfun(@(row) sample_entropy(log_power(row, idx1_band:idx2_band), m, r), (1:size(log_power, 1))');
-            % Using arrayfun to apply Katz_FD row by row
-            KFD(:,band) = arrayfun(@(row) Katz_FD(power(row, idx1_band:idx2_band)), (1:size(log_power,1))');
+        % --- Discard edges: 3.5 s each side (7-cycle wavelet at fs=500) ---
+        cut = 1750;  % samples to remove to discard filter edge effect
+        signal_bp = signal_bp(cut+1:end-cut, :);   % [T x num_bands]
+        phase_bp  = phase_bp (cut+1:end-cut, :);
+        power_bp  = power_bp (cut+1:end-cut, :);
+
+        % --- Epoching ---
+        N = size(signal_bp, 1);
+        nwin = 23; % We only want the features over the first 290 seconds. Which will generate 57 overlapping windows
+        ntrials = 12;
+
+        % Trim data
+        signal_bp = signal_bp(1:ntrials*win_len, :);
+        phase_bp  = phase_bp (1:ntrials*win_len, :);
+        power_bp  = power_bp (1:ntrials*win_len, :);
+
+        % --- Preallocate per-subject feature arrays ---
+        HD         = nan(nwin, num_selected_bands);
+        HA         = nan(nwin, num_selected_bands);
+        HDA    = nan(nwin, num_selected_bands);
+        M      = nan(nwin, num_selected_bands);
+        sampen     = nan(nwin, num_selected_bands);
+        KFD        = nan(nwin, num_selected_bands);
+        HFD        = nan(nwin, num_selected_bands);
+        Hurst_exp  = nan(nwin, num_selected_bands);
+        power_mean = nan(nwin, num_selected_bands);
+
+
+        % --- Trial loop ---
+        for ww = 1:nwin
+           start_idx = (ww-1) * step + 1;
+           end_idx   = start_idx + win_len - 1;
+           signal = signal_bp(start_idx:end_idx,:);
+           power = power_bp(start_idx:end_idx,:);
+
+
+            % --- Per-band features ---
+            for b= 1:numel(selected_bands)
+                band = selected_bands(b);
+                x = squeeze(signal(:, band));
+                [HD(ww,b), HA(ww,b), HDA(ww,b), M(ww,b), ...
+                    ~, ~, ~, ~, ~] = compute_Sampentropies(x, lambda, m, alpha);
+                r = alpha * std(x);
+                sampen(ww,b) = sample_entropy(x, m, r);
+                KFD(ww,b)       = KatzFD(x);
+                HFD(ww,b)       = Higuchi_FD(x, kmax);
+                Hurst_exp(ww,b) = hurst_exponent(x);
+                power_mean(ww,b)= mean(power(:, band));
+            end
         end
-        fullband_log_power =  mean(log_power,2);
-        [~,idx_max_glob]= max(normalize(log_power,2),[],2);
-        dominant_peak_freq= target_freqs(idx_max_glob)';
-        fullband_hurst_exp = arrayfun(@(row) hurst_exponent(power(row, :)), (1:size(log_power, 1))');
-        fullband_samp_en =  arrayfun(@(row) sample_entropy(log_power(row, :), m, r), (1:size(log_power, 1))');
-        fullband_KFD = arrayfun(@(row) Katz_FD(power(row, :)), (1:size(log_power,1))');
-        features_matrix(current_channel, :, :) = ...
-            [band_log_power,fullband_log_power, band_peak_fr, dominant_peak_freq, hurst_exp, ...
-            fullband_hurst_exp, sam_en, fullband_samp_en, KFD, fullband_KFD];
 
+        % --- Pack features for this subject ---
+        features = struct();
+        features.info.subject     = current_subject;
+        features.info.ic          = current_comp;
+        features.info.cluster_id  = cls;
+        features.info.cluster_name= cluster_names{icl};
+        features.info.fs          = fs;
+        features.info.band_names  = band_names;
+        features.info.selected_bands = selected_bands;
+        features.info.trial_pnts  = win_len;
+        features.info.trial_secs  = trial_duration;
+
+        features.HD = HD;
+        features.HA = HA;
+        features.HDA = HDA;
+        features.M = M;
+        features.sampen = sampen;
+        features.KFD = KFD;
+        features.HFD = HFD;
+        features.Hurst = Hurst_exp;
+        features.powermean = power_mean;
+
+        cluster_features{isub}  = features;
+        num_trls_per_subject{icl}(isub) = nwin;
+
+        fprintf('Cluster %d (%s): %.02f%% of subjects done!\n', ...
+            icl, cluster_names{icl}, isub/num_sub*100);
+        cd(sub_dir);
+        save(sprintf('features_sub%03d_ic%d_5bands.mat',isub,icl),"features")
     end
 
-    % save the data of this subject
-    file_name=sprintf('SFFT_19chan_features_s%03d.mat', sub);
-    save(file_name, "features_matrix",'-v7.3');
-    sprintf('Feature extraction for subject %d is done!', sub)
-end
-clearvars features_matrix
-%% Loop through all subjects to create a 5D matrix for all the subjects
-% Initiate 5D matrix to save the data of all the subjects
-features_matrix4D = zeros(num_sub,EEG.nbchan, n_segments, n_features);
+    all_features_clusters{icl} = cluster_features;
+   
+feats =all_features_clusters{icl};
+    cd(result_path);
+save(sprintf('dementia_features_%s.mat',cluster_names{icl}), ...
+    'feats', 'num_trls_per_subject', ...
+    'clusters', 'cluster_names', 'band_names', ...
+    'phase_bands_idx', 'amp_bands_idx', 'nbins_pac', '-v7.3');
 
-for sub = 1:num_sub
-    sub_dir = sprintf('%s\\s%03d',data_path,sub);
-    cd(sub_dir)
-    file_name=sprintf('SFFT_19chan_features_s%03d.mat', sub);
-     load(file_name);
-    features_matrix4D(sub,:,:,:)= single(features_matrix);
+ fprintf('%.2f of clusters done and saved!\n', icl/num_cls);  %Print the progress!
+
 end
-cd(data_path)
-% save the 4D data of power of all the subjects
-save('dementia_features_data.mat','features_matrix4D','-v7.3')
+
+% --- Save ---
+cd(result_path);
+save('dementia_features_5bands.mat', ...
+    'all_features_clusters', 'num_trls_per_subject', ...
+    'clusters', 'cluster_names', 'band_names', ...
+    'phase_bands_idx', 'amp_bands_idx', 'nbins_pac', '-v7.3');
+
+fprintf('Saved: dementia_features.mat\n');
