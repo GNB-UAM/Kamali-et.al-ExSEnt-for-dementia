@@ -277,7 +277,7 @@ def stability_selection_logreg( X, y, C_grid, n_subsamples=500, subsample_frac=0
 
     if return_refit and selected_idx.size > 0:
         Xs = StandardScaler().fit_transform(X[:, selected_idx])
-        refit = LogisticRegression( penalty='none', solver='lbfgs',  class_weight=class_weight, max_iter=2000)
+        refit = LogisticRegression( penalty=None, solver='lbfgs',  class_weight=class_weight, max_iter=2000)
         refit.fit(Xs, y)
         out['refit_coef'] = refit.coef_.ravel()
         out['refit_intercept'] = float(refit.intercept_)
@@ -309,10 +309,10 @@ def _oof_probs_with_C(X_tr_sel, y_tr, C, seed, inner_folds, scaler_key="standard
 
     if penalty in ('l1','elasticnet'):
         solver, l1r = 'saga', (None if penalty=='l1' else float(l1_ratio))
-    elif penalty in ('l2','none'):
+    elif penalty in ('l2',None):
         solver, l1r = 'lbfgs', None
     else:
-        raise ValueError("penalty must be one of: 'l1','elasticnet','l2','none'.")
+        raise ValueError("penalty must be one of: 'l1','elasticnet','l2',None.")
         
     base = Pipeline(steps=[ ("imp", SimpleImputer(strategy="median")),  ("sc", SCALERS[scaler_key]),
         ("clf", LogisticRegression( penalty=penalty, solver=solver, C=C, l1_ratio=l1r, class_weight="balanced",
@@ -330,10 +330,10 @@ def _inner_baccs_for_C(X_tr_sel, y_tr, C, seed, inner_folds, scaler_key="standar
     skf = StratifiedKFold(n_splits=k, shuffle=True, random_state=seed)
     if penalty in ('l1', 'elasticnet'):
         solver, l1r = 'saga', (None if penalty == 'l1' else float(l1_ratio))
-    elif penalty in ('l2', 'none'):
+    elif penalty in ('l2', None):
         solver, l1r = 'lbfgs', None
     else:
-        raise ValueError("penalty must be one of: 'l1','elasticnet','l2','none'.")
+        raise ValueError("penalty must be one of: 'l1','elasticnet','l2',None.")
 
     base_pipe = Pipeline(steps=[ ("imp", SimpleImputer(strategy="median")), ("sc", SCALERS[scaler_key]),
         ("clf", LogisticRegression(penalty=penalty, solver=solver, C=C, l1_ratio=l1r, class_weight=class_weight, 
@@ -432,10 +432,10 @@ def run_loso_once(X_subj, y_labels, subject_id, STAB_SEARCH_GRID, FINAL_PENALTIE
         if not screened: raise RuntimeError("stability_selection produced no viable candidates.")
 
         # ============================
-        # MINIMAL PATCH: if FINAL_PENALTIES are only 'none', skip the entire inner FINAL sweep
+        # MINIMAL PATCH: if FINAL_PENALTIES are only None, skip the entire inner FINAL sweep
         # and choose stability-selection output deterministically (no dependence on FINAL_C_GRID).
         # ============================
-        only_none = all([(pen in ("none", None)) for pen in FINAL_PENALTIES])
+        only_none = all([(pen in (None, None)) for pen in FINAL_PENALTIES])
 
         if only_none:
             # Deterministic choice among screened candidates without using FINAL_C_GRID.
@@ -463,7 +463,7 @@ def run_loso_once(X_subj, y_labels, subject_id, STAB_SEARCH_GRID, FINAL_PENALTIE
             BEST_SCALER_KEY    = next(iter(SCALERS.keys()))  # deterministic
             BEST_C_FINAL       = 1.0
             BEST_L1_RATIO      = None
-            BEST_PENALTY       = "none"
+            BEST_PENALTY       = None
             BEST_CACC_MIN      = np.nan
             BEST_CACC_MAX      = np.nan
             BEST_C_STATS       = None
@@ -480,7 +480,7 @@ def run_loso_once(X_subj, y_labels, subject_id, STAB_SEARCH_GRID, FINAL_PENALTIE
                 
                 for scaler_key in SCALERS.keys():
                     for pen in FINAL_PENALTIES:
-                        if pen in ("none",None, "l2"):
+                        if pen in (None,None, "l2"):
                             l1r_try = None
                         elif pen == "elasticnet":
                             l1r_try = cand["params"]["l1_ratio"]
@@ -567,9 +567,9 @@ def run_loso_once(X_subj, y_labels, subject_id, STAB_SEARCH_GRID, FINAL_PENALTIE
         bacc_tr_oof = balanced_accuracy_score(y_tr, yhat_tr_oof)
         auc_tr_oof  = roc_auc_score(y_tr, oof_probs) if len(np.unique(y_tr)) == 2 else np.nan
 
-        solver = 'lbfgs' if BEST_PENALTY in ('l2','none') else 'saga'
+        solver = 'lbfgs' if BEST_PENALTY in ('l2',None) else 'saga'
         l1r_use = (float(BEST_L1_RATIO) if BEST_PENALTY == 'elasticnet' else None)
-        C_final = (1.0 if BEST_PENALTY == 'none' else (BEST_C_FINAL if BEST_C_FINAL is not None else 1.0))
+        C_final = (1.0 if BEST_PENALTY == None else (BEST_C_FINAL if BEST_C_FINAL is not None else 1.0))
 
         final_pipe = Pipeline(steps=[("imp", SimpleImputer(strategy="median")),("sc", SCALERS[BEST_SCALER_KEY]),
                                       ("clf", LogisticRegression(penalty=BEST_PENALTY, solver=solver, C=C_final,
@@ -761,8 +761,8 @@ def evaluate_block(X, y, pfer, pi_thr, l1_ratio, C_grid, cv_folds=3, base_seed=4
         if stable_idx.size == 0:
             fold_baccs.append(np.nan)
             fold_accs.append(np.nan)
-            fold_scalers.append("none")
-            fold_metrics.append({"fold": fold_n, "scaler": "none", "bacc": np.nan, "acc": np.nan, "features": 0})
+            fold_scalers.append(None)
+            fold_metrics.append({"fold": fold_n, "scaler": None, "bacc": np.nan, "acc": np.nan, "features": 0})
             continue
 
         X_tr_s = X_tr[:, stable_idx]
@@ -777,7 +777,7 @@ def evaluate_block(X, y, pfer, pi_thr, l1_ratio, C_grid, cv_folds=3, base_seed=4
             pipe = Pipeline([
                 ("imp", SimpleImputer(strategy="median")),
                 ("sc", scaler_obj),
-                ("clf", LogisticRegression(penalty="none", solver="lbfgs",class_weight="balanced", max_iter=5000))])
+                ("clf", LogisticRegression(penalty=None, solver="lbfgs",class_weight="balanced", max_iter=5000))])
 
             pipe.fit(X_tr_s, y_tr)
             y_pred = pipe.predict(X_val_s)
@@ -1141,7 +1141,7 @@ C_FINAL = np.logspace(lo2, hi2, n2)
 
 print(f"best: pfer={pfer_best}, pi_thr={pi_best}, l1_ratio={l1_best} | |C_STAB|={len(C_STAB)}, |C_FINAL|={len(C_FINAL)}")
 
-FINAL_PENALTIES = ('none',)#("l2",) if we set C, for ridge, the we set the penalty to l2
+FINAL_PENALTIES = (None,)#("l2",) if we set C, for ridge, the we set the penalty to l2
 
 STAB_SEARCH_GRID = {
     "n_subsamples":   [1000],
@@ -2230,7 +2230,7 @@ for bar, c in zip(bars, coef_vals):
             height=bar.get_height(),
             left=bar.get_x(),
             align="center",
-            facecolor="none",
+            facecolor=None,
             edgecolor="orange",
             linewidth=0.0,
             hatch="//",)
@@ -2318,7 +2318,7 @@ for bar, c in zip(bars, coef_vals):
             height=bar.get_height(),
             left=bar.get_x(),
             align="center",
-            facecolor="none",
+            facecolor=None,
             edgecolor="orange",
             linewidth=0.0,
             hatch="//",)
