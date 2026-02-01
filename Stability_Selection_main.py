@@ -163,8 +163,7 @@ DROP_FEATURES = [
     # 'HDA_Theta','HDA_Alpha','HDA_Beta','HDA_Low Gamma','HDA_High Gamma',
     # 'HA_Theta','HA_Alpha','HA_Beta','HA_Low Gamma','HA_High Gamma',
     # 'HD_Theta','HD_Alpha','HD_Beta','HD_Low Gamma','HD_High Gamma',
-    'powermean_Theta','powermean_Alpha',
-    'signalmean_Delta','signalmean_Theta','signalmean_Alpha','signalmean_Beta','signalmean_Low Gamma','signalmean_High Gamma',]
+    'powermean_Theta','powermean_Alpha',]
 
 drop = set(n.lower() for n in DROP_FEATURES)
 keep_idx = [i for i, n in enumerate(feature_names) if n.lower() not in drop]
