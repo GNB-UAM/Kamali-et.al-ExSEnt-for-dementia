@@ -69,10 +69,14 @@ Python:
 3. `python/` for Python scripts.
 4. `results/` for exported tensors, tables, and figures.
 
-## 5. Citation
+## Citation
 
 If you use this code, cite the manuscript listed in Section 1 (when publicly available).
 
-## 6. Contact
+## Contact
 
 Sara Kamali (sara.kamali@gmail.com)
+
+## Rights
+
+All rights reserved by the authors.
