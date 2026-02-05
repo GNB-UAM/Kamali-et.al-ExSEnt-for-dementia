@@ -20,7 +20,7 @@ Pipeline summary:
 5. Sliding-window feature extraction (complexity and spectral features).
 6. Stability selection and penalized logistic regression to identify stable, explainable biomarkers for early dementia detection.
 
-## 2. File descriptions and intended order of use
+## 2. File descriptions 
 
 1. `Preprocessing_raw_EEG.m`  
    Preprocesses raw EEG, computes IC decomposition, performs source localization, and identifies brain-related ICs (good ICs) for each subject.
