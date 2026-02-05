@@ -52,7 +52,7 @@ Pipeline summary:
 8. `Stability_Selection_main.py`  
    Runs stability selection over extracted features to identify stable and interpretable biomarkers, and fits penalized logistic regression models for classification and reporting.
 
-## 3. Requirements (high level)
+## 3. Requirements 
 
 MATLAB:
 1. EEGLAB (for preprocessing, IC handling, and STUDY clustering).
