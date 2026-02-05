@@ -62,12 +62,7 @@ Python:
 1. Python 3.x.
 2. Standard scientific stack (NumPy, SciPy, pandas, scikit-learn) for stability selection and classification.
 
-## 4. Recommended repository structure
 
-1. `data/` for BIDS dataset (not included in this repository).
-2. `matlab/` for MATLAB scripts.
-3. `python/` for Python scripts.
-4. `results/` for exported tensors, tables, and figures.
 
 ## Citation
 
